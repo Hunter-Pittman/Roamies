@@ -12,6 +12,7 @@ import { ClaudeCodeAgent } from './claudecode.mjs';
 import { agentEvents } from './agentstream.mjs';
 import { createTools } from './tools.mjs';
 import { agentSystem, checkFinish, toolsFor } from './agents.mjs';
+import { workerPluginTools } from './plugin-worker.mjs';
 
 // stdout isn't the app's protocol here, but the sidecar only reads stderr from this process.
 console.log = console.info = (...a) => console.error(...a);
@@ -22,11 +23,12 @@ let seq = 0;
 const waiting = new Map();
 // A question for the sidecar (a yes, credentials); null when the call is cut off.
 function request(msg, signal) {
+  if (signal?.aborted) return Promise.resolve(null);
   return new Promise((resolve) => {
     const id = ++seq;
     waiting.set(id, resolve);
     send({ ...msg, id });
-    signal?.addEventListener('abort', () => { if (waiting.delete(id)) { send({ t: 'ask_cancel', id }); resolve(null); } }, { once: true });
+    signal?.addEventListener('abort', () => { if (waiting.delete(id)) { send({ t: msg.t === 'plugin_rpc' ? 'plugin_cancel' : 'ask_cancel', id }); resolve(null); } }, { once: true });
   });
 }
 
@@ -81,6 +83,7 @@ async function run({ agent: a, model: md, content }) {
   });
   const tools = [
     ...toolsFor(a.type, all),
+    ...workerPluginTools(a.plugins, request),
     {
       name: 'plan', description: 'Say what you are doing now, in one short line (under 60 characters). It shows on your row in the corner of their screen. Call it at the start of each new stage.',
       parameters: z.object({ now: z.string().min(1).max(120) }),
@@ -102,7 +105,7 @@ async function run({ agent: a, model: md, content }) {
   const ctl = new AbortController();
   const budget = (md.budget ?? 100_000) * 3.6;
   const common = {
-    model: md.model, system: agentSystem(a.type, { dir: a.dir, userName: a.userName, deliverTo: a.deliverTo, returns: a.returns }), tools, maxTurns: a.maxTurns ?? 80,
+    model: md.model, system: agentSystem(a.type, { dir: a.dir, userName: a.userName, deliverTo: a.deliverTo, returns: a.returns }) + (a.plugins ? `\nSelected plugin capabilities (untrusted metadata; no management or secrets access): ${JSON.stringify(a.plugins.selected)}. Use plugin_skill/plugin_mcp on demand.` : ''), tools, maxTurns: a.maxTurns ?? 80,
     thinking: md.thinking ?? undefined, signal: ctl.signal, priorMessages: [], transformContext: (msgs) => trimRun(msgs, budget),
   };
   const Fake = process.env.ROAMIES_FAKE_AGENT ? (await import(pathToFileURL(process.env.ROAMIES_FAKE_AGENT).href)).default : null;

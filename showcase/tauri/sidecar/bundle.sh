@@ -46,6 +46,12 @@ for (const name of process.argv.slice(2)) copy(name, process.cwd());
 EOF
 # The recorded beats (beats/make.mjs): the audio and its index, not the script.
 mkdir -p dist/beats && cp beats/index.json beats/*.pcm dist/beats/
-# Supervisor instructions travel with the app and are included in each independent launch.
-cp -R skills dist/skills
+cp -R plugin-schemas dist/plugin-schemas
+# The Orca integration is an ordinary package with an independently bundled stdio MCP executable.
+mkdir -p dist/bundled-plugins/orca
+cp bundled-plugins/orca/plugin.json bundled-plugins/orca/mcp.json dist/bundled-plugins/orca/
+cp -R bundled-plugins/orca/skills dist/bundled-plugins/orca/
+"$ES" bundled-plugins/orca/server-source.mjs --bundle --platform=node --format=esm --target=node22 \
+  --outfile=dist/bundled-plugins/orca/server.mjs \
+  --banner:js="import { createRequire as __cr } from 'node:module'; const require = __cr(import.meta.url);" --log-level=warning
 echo '{"type":"module"}' > dist/package.json

@@ -125,9 +125,10 @@
     const question = m.prompt || m.placeholder || '';
     // A yes/no: Allow answers yes, any other button no. The field only takes keys then (Y, N, Tab, arrows, Enter).
     const choices = Array.isArray(m.choices) && m.choices.length ? m.choices.map(String) : null;
-    const h = a.prompt({ placeholder: question, mask: m.mask, onPress: focusField, choices, onChoose: (i) => finishAsk(i === 0 ? 'yes' : null) });
-    ask = { id: m.id, h, choices, sel: -1, label: null };
-    if (choices) { ask.label = field.getAttribute('aria-label'); field.setAttribute('aria-label', `${question} Press Y to allow or N to decline.`); }
+    const review = typeof m.review === 'string' ? m.review : '';
+    const h = a.prompt({ placeholder: question, review, mask: m.mask, onPress: focusField, choices, onChoose: (i) => finishAsk(i === 0 ? 'yes' : null) });
+    ask = { id: m.id, h, choices, review: !!review, sel: -1, label: null };
+    if (choices) { ask.label = field.getAttribute('aria-label'); field.setAttribute('aria-label', `${question}${review ? ` ${review} Use Page Up/Down or the mouse wheel to review.` : ''} Press Y to allow or N to decline.`); }
     focusField();
   };
   // The bubble draws the caret where the field has it, so moving back to fix a word shows where typing goes.
@@ -141,7 +142,9 @@
       if (e.metaKey || e.ctrlKey || e.altKey || e.isComposing) return;
       e.preventDefault();
       const n = ask.choices.length, key = e.key.toLowerCase();
-      if (key === 'y') finishAsk('yes');
+      if (ask.review && ['pageup', 'pagedown', 'arrowup', 'arrowdown', 'home', 'end'].includes(key)) {
+        ask.h.scroll(key === 'home' ? -100000 : key === 'end' ? 100000 : key === 'pageup' ? -5 : key === 'pagedown' ? 5 : key === 'arrowup' ? -1 : 1);
+      } else if (key === 'y') finishAsk('yes');
       else if (key === 'n' || key === 'escape') finishAsk(null);
       else if (key === 'tab' || key === 'arrowright' || key === 'arrowleft') {
         const back = key === 'arrowleft' || (key === 'tab' && e.shiftKey);

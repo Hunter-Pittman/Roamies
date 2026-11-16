@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { Agent } from '@kenkaiiii/gg-agent';
-import { createSupervisors } from '../supervisors.mjs';
+import { createSupervisors } from './supervisorfixture.mjs';
 const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'roamies-supervisor-runtime-')));
 let opened = 0, requests = 0;
 const manager = createSupervisors({ root, intervalMs: 0, open: () => opened++, orca: {

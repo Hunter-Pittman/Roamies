@@ -3,6 +3,7 @@
 import dns from 'node:dns/promises';
 import fs from 'node:fs';
 import nodePath from 'node:path';
+export { insidePluginRoot, resolvePluginPath, checkPluginStorage, checkPluginCommand, checkPluginEndpoint, checkPluginHeaders, expandPluginString, pluginWorkingDirectory, pluginEnvironment, checkPluginHostRequest } from './plugin-safety.mjs';
 // Rules work on forward-slash paths everywhere, so a Windows path (C:\Users\ken\.ssh) meets the same checks.
 const path = nodePath.posix;
 const slash = (p) => String(p ?? '').replace(/\\/g, '/');
@@ -140,6 +141,7 @@ export function riskyKind(label) {
 /** Tool arguments as they go in the activity log: anything typed into fields or files becomes its length. */
 export function redactArgs(name, args = {}) {
   const len = (t) => `[${String(t ?? '').length} chars]`;
+  if (name === 'plugin_mcp') return { ...args, argumentsJson: len(args.argumentsJson) };
   if (name === 'create_supervisor') return { ...args, objective: len(args.objective), instructions: len(args.instructions) };
   if (name === 'message_supervisor') return { id: args.id, text: len(args.text) };
   // Steps that aren't a list (a model sent them as one string) are logged as their size only: they can hold typed
@@ -163,9 +165,16 @@ export function checkRead(p, home, { recursive = false } = {}) {
 
 /** write_file. Existing files need a yes; secrets, startup files and system folders never. `own`: a folder that is
  *  the writer's own (an agent's folder), where overwriting needs no yes; only where the path really leads counts. */
-export function checkWrite(p, home, { exists = false, own = null } = {}) {
+export function checkWrite(p, home, { exists = false, own = null, pluginStorage = false } = {}) {
   home = slash(home);
   const abs = norm(p, home), r = rel(abs, home), all = bothOf(abs);
+  // Only the typed plugin manager writes execution approvals and installed snapshots. Generic writes cannot
+  // create a forged approval for the next launch, including through an agent's `own` overwrite exception.
+  const pluginRoots = [path.join(home, 'Roamies', 'Plugins'), ...(process.env.ROAMIES_DATA_DIR ? [path.join(slash(process.env.ROAMIES_DATA_DIR), 'Roamies', 'Plugins')] : [])];
+  const fold = (value) => process.platform === 'win32' ? value.toLowerCase() : value;
+  if (!pluginStorage && all.some((file) => pluginRoots.some((root) => [root, realOf(root)].some((base) => fold(file) === fold(base) || fold(file).startsWith(fold(base) + '/'))))) {
+    return { ...verdict(BLOCK, 'Installed plugins and execution approvals are managed through manage_plugin, not generic file writes.'), path: abs };
+  }
   if (all.some((a) => [...SECRET, ...NO_WRITE].some((re) => re.test(rel(a, home)) || re.test(a)))) {
     return { ...verdict(BLOCK, `${p} is a protected file (keys, settings, startup scripts or an app), so I won't write to it.`), path: abs };
   }

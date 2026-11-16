@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { createSupervisors, parseSupervisorRequest } from '../supervisors.mjs';
+import { createSupervisors, parseSupervisorRequest } from './supervisorfixture.mjs';
 import { writeJson } from '../store.mjs';
 const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'roamies-supervisors-')));
 const runId = 'run_123', taskId = 'task_456', dispatchId = 'ctx_789';

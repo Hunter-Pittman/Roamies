@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import { createHash } from 'node:crypto';
-import { createSupervisors } from '../supervisors.mjs';
+import { createSupervisors } from './supervisorfixture.mjs';
 import { resolveToolSchema } from '@kenkaiiii/gg-ai';
 
 const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'roamies-supervisor-modes-')));
@@ -18,7 +18,7 @@ try {
   assert.deepEqual(resolveToolSchema(tool).properties.mode.enum, ['basic', 'advanced']);
   const basic = JSON.parse(await tool.execute({ ...input, mode: null }));
   assert.equal(basic.mode, 'basic', 'an omitted/null mode grants only basic supervision');
-  const skill = await fs.readFile(new URL('../skills/roamie-supervisor/SKILL.md', import.meta.url), 'utf8');
+  const skill = await fs.readFile(new URL('../bundled-plugins/orca/skills/roamie-supervisor/SKILL.md', import.meta.url), 'utf8');
   assert.ok(prompts[0].includes(skill), 'the actual maintained skill is delivered in the launch, not just a possibly inaccessible path');
   assert.match(prompts[0], /Mode: basic\./);
   assert.equal((await manager.launch(input)).id, basic.id);

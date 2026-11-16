@@ -1,0 +1,13 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "roamies.orca",
+  "version": "1.0.0",
+  "description": "Local Orca agent status, task history and model-generated supervisors.",
+  "extensions": {
+    "io.roamies.host": {
+      "services": [
+        "supervisors"
+      ]
+    }
+  }
+}

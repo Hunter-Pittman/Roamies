@@ -291,7 +291,7 @@ export function createAgents({ fork, ui, config, root, userName = 'The user', ru
   const newId = () => { for (;;) { const id = `a${Math.random().toString(36).slice(2, 5)}`; if (!agents.has(id)) return id; } };
   const actionsOff = 'File edits and commands are switched off, and agents need them. Tell the user to turn on "Allow File Edits & Commands" if they want one.';
 
-  async function start({ type, title, brief, inputs = [], deliver_to: deliverTo, continue: cont, returns } = {}) {
+  async function start({ type, title, brief, inputs = [], deliver_to: deliverTo, continue: cont, returns, plugins: selectedPlugins = [] } = {}) {
     await loaded;
     if (!config.allowActions()) throw new Error(actionsOff);
     if (!AGENT_TYPES.includes(type)) throw new Error(`type must be one of ${AGENT_TYPES.join(', ')}.`);
@@ -350,21 +350,25 @@ export function createAgents({ fork, ui, config, root, userName = 'The user', ru
     }
     const text = `Brief from ${userName}:\n${a.brief}${given.length ? `\n\nThey sent: ${given.join(', ')}.` : ''}${before}`;
     const content = images.length ? [{ type: 'text', text }, ...images] : text;
+    const pluginGrant = selectedPlugins.length ? await config.plugins?.select(selectedPlugins) : null;
+    if (selectedPlugins.length && !pluginGrant) throw new Error('Background plugin capabilities are unavailable.');
     await saveState(a);
     agents.set(a.id, a);
-    spawn(a, { t: 'start', agent: { id: a.id, type: a.type, dir: a.dir, deliverTo: a.deliverTo, returns: a.returns, userName, allow: config.allowActions(), maxTurns: LIMITS.turns }, model: md, content });
+    try { spawn(a, { t: 'start', agent: { id: a.id, type: a.type, dir: a.dir, deliverTo: a.deliverTo, returns: a.returns, userName, allow: config.allowActions(), maxTurns: LIMITS.turns, plugins: pluginGrant ? { token: pluginGrant.token, selected: pluginGrant.selected } : null }, model: md, content }, pluginGrant); }
+    catch (e) { config.plugins?.release(pluginGrant); throw e; }
     tell('launch', a);
     log('agent_start', { id: a.id, type: a.type, provider: md.provider, model: md.model, route: md.route, run: a.runs });
     return a;
   }
 
-  function spawn(a, startMsg) {
+  function spawn(a, startMsg, pluginGrant) {
     const child = fork(runner, [], { stdio: ['ignore', 'pipe', 'pipe', 'ipc'], serialization: 'advanced', env: { ...process.env, ROAMIES_AGENT: a.id } });
-    const p = { child, beat: now(), event: now(), end: null, stopping: null, kill: null };
+    const p = { child, pluginGrant, pluginCalls: new Map(), beat: now(), event: now(), end: null, stopping: null, kill: null };
     procs.set(a.id, p);
     for (const s of [child.stdout, child.stderr]) s?.on('data', (d) => process.stderr.write(`[agent ${a.id}] ${d}`));
     child.on('message', (m) => onMessage(a, p, m));
     child.on('error', (e) => log('agent_error', { id: a.id, error: String(e.message) }));
+    child.on('disconnect', () => { config.plugins?.release(p.pluginGrant); for (const controller of p.pluginCalls.values()) controller.abort(); });
     // close, not exit: it comes after the last IPC message has been read.
     child.on('close', (code, signal) => finish(a, p, code, signal));
     child.send(startMsg);
@@ -372,6 +376,17 @@ export function createAgents({ fork, ui, config, root, userName = 'The user', ru
 
   function onMessage(a, p, m) {
     if (!m || typeof m !== 'object') return;
+    if (m.t === 'plugin_cancel') { p.pluginCalls.get(m.id)?.abort(); return; }
+    if (m.t === 'plugin_rpc') {
+      if (procs.get(a.id) !== p || p.stopping || !p.child.connected || !Number.isSafeInteger(m.id)) return;
+      const reply = (value) => { if (p.child.connected && procs.get(a.id) === p) p.child.send({ t: 'reply', id: m.id, value }); };
+      if (!p.pluginGrant || m.token !== p.pluginGrant.token || p.pluginCalls.size >= 16 || p.pluginCalls.has(m.id) || JSON.stringify(m).length > 140000) { reply({ error: 'Worker plugin capability denied.' }); return; }
+      const controller = new AbortController(); p.pluginCalls.set(m.id, controller);
+      Promise.resolve().then(() => config.plugins.broker(p.pluginGrant, m.method, m.args, { signal: controller.signal }))
+        .then((result) => reply({ result }), (e) => reply({ error: config.plugins.redact(String(e.message)) }))
+        .finally(() => p.pluginCalls.delete(m.id));
+      return;
+    }
     p.beat = now();
     if (m.t === 'tick') p.event = now();
     else if (m.t === 'tool') { p.event = now(); a.tool = GLYPH[m.name] ?? null; update(a); }
@@ -399,6 +414,7 @@ export function createAgents({ fork, ui, config, root, userName = 'The user', ru
   async function finish(a, p, code, signal) {
     if (procs.get(a.id) !== p) return;
     procs.delete(a.id);
+    config.plugins?.release(p.pluginGrant); for (const controller of p.pluginCalls.values()) controller.abort();
     clearTimeout(p.kill);
     if (a.state === 'working' && a.workFrom) a.workMs += now() - a.workFrom;
     a.workFrom = null; a.ask = null; a.ended = now(); a.tool = null;
@@ -431,6 +447,7 @@ export function createAgents({ fork, ui, config, root, userName = 'The user', ru
     if (!a || !p) return false;
     if (p.stopping) return true;
     p.stopping = { state, reason };
+    config.plugins?.release(p.pluginGrant); for (const controller of p.pluginCalls.values()) controller.abort();
     try { p.child.kill('SIGTERM'); } catch {}
     p.kill = setTimeout(() => { try { p.child.kill('SIGKILL'); } catch {} }, LIMITS.killMs);
     return true;
@@ -518,6 +535,7 @@ export function createAgents({ fork, ui, config, root, userName = 'The user', ru
         type: z.enum(AGENT_TYPES), title: z.string().min(1).max(60), brief: z.string().min(1).max(8000),
         inputs: z.array(z.string().max(500)).max(10).optional(), deliver_to: z.string().max(500).optional(), continue: z.string().max(12).optional(),
         returns: z.enum(RETURNS).optional(),
+        plugins: z.array(z.string().max(60)).max(12).optional(),
       }),
       execute: async (args) => {
         const a = await start(args);
@@ -555,7 +573,7 @@ export function createAgents({ fork, ui, config, root, userName = 'The user', ru
     liveText: () => liveAgentsText([...agents.values()], { now: now(), userName }),
     // The overlay (re)loaded: it gets every agent still working, and failures not yet dismissed.
     sync: () => { for (const a of agents.values()) if (a.state === 'working' || a.state === 'waiting' || (a.state === 'failed' && !a.seen)) tell('update', a); },
-    setAllow: (on) => { for (const p of procs.values()) if (p.child.connected) p.child.send({ t: 'allow', on: !!on }); },
+    setAllow: (on) => { for (const p of procs.values()) { if (!on) { config.plugins?.release(p.pluginGrant); for (const controller of p.pluginCalls.values()) controller.abort(); } if (p.child.connected) p.child.send({ t: 'allow', on: !!on }); } },
     stopAll: () => { clearInterval(watch); for (const id of procs.keys()) stop(id, { state: 'stopped', reason: 'Roamies closed' }); },
   };
 }

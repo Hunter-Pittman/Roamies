@@ -147,7 +147,7 @@ Windows and Linux uses [NVIDIA Parakeet TDT 0.6B v3](https://huggingface.co/nvid
 
 Tell Roamie what you need handled, for example “Run the remaining experiments in my project and prepare a brief.”
 Roamie's model discovers the local Orca workspace and generates the supervisor's objective and instructions.
-Each launch includes the bundled [supervisor skill](showcase/tauri/sidecar/skills/roamie-supervisor/SKILL.md).
+Each launch includes the bundled [supervisor skill](showcase/tauri/sidecar/bundled-plugins/orca/skills/roamie-supervisor/SKILL.md).
 **Basic** monitors existing work and nudges unfinished agents to continue. **Advanced** evaluates outputs,
 dispatches the next steps and drives the objective to completion. Name a mode in conversation, or let Roamie
 infer it from your request (basic when unclear). Existing supervisors keep their original scope.
@@ -179,6 +179,16 @@ SSH and message-account integrations are not connected yet. Existing-Task watche
 arbitrary chat activity is not a completion signal. Model supervisors report through their own bounded output
 files, not inferred chat inactivity. Briefs identify reported vs verified evidence; Roamies does not execute report
 instructions or open arbitrary artifact paths mentioned by an agent.
+
+## Agent Plugins (development)
+
+Orca now ships as the enabled `roamies.orca` plugin, using the same package loader and MCP runtime. Ask Roamie to disable or enable it through plugin management; saved supervisors and the read-only overlay remain available. See [Orca plugin integration](docs/orca-plugin.md).
+
+Ask Roamie to install a local directory using [Agent Plugins 1.0.0](https://agent-plugins.org/specification), then enable it. It reviews the concrete skills, commands and endpoints in its existing confirmation bubble. Approval persists for unchanged packages and launchers. Plugin servers run with your account's broad authority; they are trusted code. **Allow File Edits & Commands** gates execution.
+
+Skills load on demand. MCP supports native stdio executables and Streamable HTTP, including tools, resources and prompts. Ask to list, disable, update or uninstall plugins through conversation. Updates create a disabled snapshot and preserve per-instance data. HTTP bearer tokens use a masked prompt and the existing secret store. Windows .cmd/.bat launchers, legacy SSE and OAuth onboarding are unsupported.
+
+Roamie can select plugins explicitly for its built-in background agents. Orca supervisors receive selected skills; requests requiring plugin MCP access fail before launch because the documented Orca launch API cannot supply it. The supervisor overlay stays read-only. See the [implementation evidence and limitations](docs/agent-plugins-conformance.md).
 
 ## Local models
 

@@ -527,7 +527,7 @@
       const maxScroll = Math.max(0, (bb.expanded ? bb.lines.length : totalLines) - inner.rows);
       if (bb.follow) bb.scrollTarget = maxScroll;
       // Typing: keep the caret's line in view, wherever it's been moved to.
-      if (bb.input && !bb.input.listen && bb.text) { const { li } = caretAt(bb.lines, bb.input.caret ?? bb.text.length); bb.scrollTarget = clamp(bb.scrollTarget ?? 0, li - inner.rows + 1, li); }
+      if (bb.input && !bb.input.listen && !bb.input.choices && bb.text) { const { li } = caretAt(bb.lines, bb.input.caret ?? bb.text.length); bb.scrollTarget = clamp(bb.scrollTarget ?? 0, li - inner.rows + 1, li); }
       bb.scrollTarget = clamp(bb.scrollTarget ?? 0, 0, Math.max(0, bb.lines.length - inner.rows));
       spring(bb.scroll, bb.scrollTarget, bb.input ? 300 : 120, bb.input ? 34 : 18, dt);
       bb.overflow = bb.lines.length > inner.rows;
@@ -679,7 +679,7 @@
         const tl = Math.max(6, len * frac), t0 = top + (len - tl) * clamp(pos, 0, 1);
         ctx.fillStyle = G.rgba(G.ACC, 0.15); ctx.fillRect(bx, top, 2, len);
         ctx.fillStyle = G.ACC; ctx.fillRect(bx, t0, 2, tl);
-        if (bb.ended && bb.scroll.x < total - bb.rows - 0.05) {
+        if ((bb.ended || bb.input?.review) && bb.scroll.x < total - bb.rows - 0.05) {
           const cx = f.x + f.w - 20, cy = f.y + f.h - 7 + (Math.sin(now * 6) > 0 ? 1 : 0);
           ctx.fillStyle = G.HOT;
           for (const [dx, dy] of [[-4, -2], [-2, 0], [0, 2], [2, 0], [4, -2]]) ctx.fillRect(cx + dx - 1, cy + dy - 1, 2, 2);
@@ -1005,8 +1005,14 @@
         bb.input = { placeholder: opts.placeholder ?? '', mask: !!opts.mask, focused: true, caretAt: now, onPress: opts.onPress };
         // choices: buttons instead of typing; onChoose(i) when one is clicked. Nothing is highlighted at first.
         if (opts.choices?.length) bb.input.choices = { labels: opts.choices.map(String), sel: -1, hover: -1, down: -1, rects: [], onChoose: opts.onChoose };
+        if (typeof opts.review === 'string' && opts.review && bb.input.choices) {
+          // Review material is real scrollable text, never a clipped input placeholder. No Markdown or HTML.
+          bb.input.review = true; bb.text = opts.review; bb.lines = wrap(bb.text, MAX_COLS);
+          bb.shown = bb.text.length; bb.follow = false; bb.scrollTarget = 0;
+        }
         bb.wait = 0;
         return {
+          scroll(lines) { if (bb.input.review) { bb.follow = false; bb.scrollTarget = (bb.scrollTarget ?? 0) + lines; } return this; },
           // The keyboard's highlighted button (-1: none).
           select(i) { const ch = bb.input.choices; if (ch && ch.sel !== i) { ch.sel = i; k.S('tick'); } return this; },
           // caret: where the field's own caret is (it moves with the arrow keys and clicks); the end if not given.

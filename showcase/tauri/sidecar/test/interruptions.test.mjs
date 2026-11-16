@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { canInterrupt, createSupervisorNotifier, DEFAULT_INTERRUPTION_RULES, interruptionMode, supervisorInterruption } from '../interruptions.mjs';
-import { createSupervisors, parseSupervisorRequest } from '../supervisors.mjs';
+import { createSupervisors, parseSupervisorRequest } from './supervisorfixture.mjs';
 import { newsDesk } from '../agents.mjs';
 
 assert.equal(canInterrupt('failures', {}, { focus: true }, 0, 100), true);

@@ -1,0 +1,95 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import os from 'node:os';
+import { fileURLToPath } from 'node:url';
+import { build } from 'esbuild';
+import { createPlugins } from '../plugins.mjs';
+import { bundledPlugins } from '../bundled-plugins.mjs';
+import { createSupervisors } from '../supervisors.mjs';
+import { Agent } from '@kenkaiiii/gg-agent';
+import { registerPalsuProvider, palsuToolCall, palsuText } from '@kenkaiiii/gg-ai';
+import { createToolBridge } from '../claudecode.mjs';
+const temp = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'roamies-orca-plugin-')));
+process.env.HOME = process.env.USERPROFILE = temp;
+const source = path.join(temp, 'package'), root = path.join(temp, 'installed'), state = path.join(temp, 'supervisors');
+await fs.mkdir(source); await fs.mkdir(root);
+const original = fileURLToPath(new URL('../bundled-plugins/orca/', import.meta.url));
+for (const file of ['plugin.json', 'mcp.json']) await fs.copyFile(path.join(original, file), path.join(source, file));
+await fs.cp(path.join(original, 'skills'), path.join(source, 'skills'), { recursive: true });
+await build({ entryPoints: [path.join(original, 'server-source.mjs')], outfile: path.join(source, 'server.mjs'), bundle: true, platform: 'node', format: 'esm', target: 'node22', banner: { js: "import { createRequire as __cr } from 'node:module';const require=__cr(import.meta.url);" }, logLevel: 'silent' });
+// A real executable and actual CLI subprocesses, without contacting Orca or launching project work.
+const fake = path.join(temp, 'orca.exe'); await fs.copyFile(process.execPath, fake); if (process.platform !== 'win32') await fs.chmod(fake, 0o700);
+const workspace = 'identity:wt2:local:11111111-1111-4111-8111-111111111111';
+const cli = `const fs=require('node:fs'),path=require('node:path');const name=path.basename(process.argv[1]);const args=process.argv.slice(2);fs.appendFileSync(path.join(process.env.HOME,'cli.log'),JSON.stringify({name,args,orca:Object.keys(process.env).filter(k=>/^ORCA_/i.test(k))})+'\\n');
+if(!process.env.APPDATA)throw new Error('Runtime configuration directory was stripped.');
+const tree={truncated:false,hostScope:{hostIds:['local'],omittedHostIds:[]},worktrees:[{hostId:'local',address:{environment:'local',worktree:'${workspace}'},repo:'crypto',displayName:'Crypto',path:process.env.HOME,agents:[{paneKey:'live-1',agentType:'codex',conversationName:'Running experiment',state:'working'}]}]};
+const data=name==='worktree'?tree:name==='agent'?{outcome:{kind:'structured',handle:'orca_session_id:fixture-supervisor'},prompt:{outcome:'journaled'},operationId:'launch_fixture'}:name==='terminal'?{send:{accepted:true,prompt:{requestId:'msg_fixture',provider:'codex'}}}:args[0]==='run-list'?{runs:[{id:'run_123',objective:'Crypto'}],nextCursor:null}:args[0]==='task-list'?{runId:'run_123',tasks:[{id:'task_456',task_title:'Existing experiment',status:'running'}]}:args[0]==='worker-list'?{workers:[{dispatchId:'ctx_789',taskId:'task_456',host:'local'}]}:args[0]==='worker-show'?{dispatch:{id:'ctx_789',runId:'run_123',taskId:'task_456',processIncarnation:'fixture1'},projection:{host:{kind:'local',id:'local'},outcome:'pending',workspace:{id:'fixture'},stage:{detail:'working'}}}:{};
+if(name==='agent'&&args.some(v=>v.includes('Uncertain launch'))){process.stdout.write(JSON.stringify({ok:false,error:{message:'Launch delivery uncertain',data:{operationId:'launch_uncertain'}}}));process.exit(1);}
+process.stdout.write(JSON.stringify({ok:true,result:data,_meta:{runtimeId:'fixture-runtime'}}));`;
+for (const file of ['worktree', 'agent', 'terminal', 'orchestration']) await fs.writeFile(path.join(temp, file), cli);
+process.env.APPDATA = path.join(temp, 'config'); process.env.XDG_CONFIG_HOME = path.join(temp, 'xdg-config');
+const shippedBinding = bundledPlugins()[0];
+assert.equal(shippedBinding.environment.APPDATA, process.env.APPDATA, 'Windows runtime discovery configuration is passed through');
+assert.equal(shippedBinding.environment.XDG_CONFIG_HOME, process.env.XDG_CONFIG_HOME, 'custom XDG runtime discovery configuration is passed through');
+const binding = { ...shippedBinding, source, environment: { ...shippedBinding.environment, ORCA_CLI_COMMAND: fake } };
+let allow = false, prompts = 0, plugins, supervisors, opened = 0;
+function start() {
+  plugins = createPlugins({ root, bundled: [binding], allowActions: () => allow, confirm: async () => { prompts++; return true; }, hostServices: { supervisors: async (operation, args) => { await supervisors.ready; return supervisors[operation](...args); } } });
+  supervisors = createSupervisors({ root: state, intervalMs: 0, orca: plugins.service('orca'), supervisorSkill: () => plugins.bundledSkill('orca', 'roamie-supervisor'), allowDispatch: () => allow, open: () => { opened++; } });
+}
+try {
+  start(); await Promise.all([plugins.ready, supervisors.ready]);
+  const installed = (await plugins.list()).plugins; assert.equal(installed.length, 1); const id = installed[0].id;
+  assert.equal(installed[0].bundled, 'orca'); assert.equal(installed[0].enabled, true); assert.equal(prompts, 0, 'migration does not add a setup approval for app-shipped code');
+  const call = async (name, args = {}) => { const result = await plugins.invoke({ id, server: 'orca', method: 'call_tool', name, argumentsJson: JSON.stringify(args) }); return JSON.parse(result.content[0].text); };
+  const discovered = await plugins.invoke({ id, server: 'orca', method: 'discover' }); assert.match(JSON.stringify(discovered), /create_supervisor/);
+  assert.equal((await call('orca_status')).summary.working, 1, 'read-only live activity works with actions off');
+  const statusArgs = { id, server: 'orca', method: 'call_tool', name: 'orca_status', argumentsJson: '{}' };
+  const provider = registerPalsuProvider();
+  try {
+    provider.setResponses([palsuToolCall('plugin_mcp', statusArgs), palsuText('One experiment is working.')]);
+    const agent = new Agent({ provider: 'palsu', model: 'fixture', tools: plugins.tools, maxTurns: 2 });
+    const results = []; for await (const event of agent.prompt('What is running in Orca?')) if (event.type === 'tool_call_end') results.push(event);
+    assert.equal(results.length, 1); assert.equal(results[0].isError, false, JSON.stringify(results)); assert.match(JSON.stringify(results), /working/);
+    const bridge = createToolBridge({ tools: plugins.tools, onEvent() {} }); let reply;
+    const received = new Promise((resolve) => { reply = resolve; });
+    const transport = { async send(message) { reply(message); } }; await bridge.config.instance.connect(transport);
+    transport.onmessage({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'plugin_mcp', arguments: statusArgs } });
+    const result = await received; assert.ok(!result.result.isError); assert.match(JSON.stringify(result), /Running experiment/);
+  } finally { provider.unregister(); }
+  assert.equal((await call('orca_tasks')).activity.summary.working, 1, 'history cannot hide ordinary running chats');
+  const input = { workspace, agent: 'codex', title: 'Crypto monitor', objective: 'Watch existing experiments', instructions: 'Monitor the existing experiment without adding work.', mode: 'basic' };
+  await assert.rejects(call('create_supervisor', input), /disabled|Allow File Edits/);
+  assert.equal((await call('supervisors', { open: true })).supervisors.length, 0); assert.equal(opened, 1, 'MCP tool reaches the existing read-only overlay host service');
+  const watch = await call('watch_orca_task', { runId: 'run_123', taskId: 'task_456', dispatchId: 'ctx_789', title: 'Existing work', objective: 'Watch completion' });
+  assert.equal(watch.state, 'watching', 'bidirectional MCP host-to-plugin observation does not deadlock');
+  allow = true; const launched = await call('create_supervisor', input); assert.equal(launched.state, 'working');
+  assert.equal((await call('create_supervisor', input)).id, launched.id, 'saved dispatch deduplication survives the plugin boundary');
+  assert.equal((await call('message_supervisor', { id: launched.id, text: 'Keep the original scope.' })).accepted, true);
+  await fs.writeFile(path.join(state, `${launched.id}.report.json`), JSON.stringify({ supervisorId: launched.id, revision: 1, state: 'completed', progress: 'Finished.', report: 'The monitored experiment finished. Results are saved.' }));
+  await supervisors.tick(); assert.match((await call('supervisors', { id: launched.id })).brief, /experiment finished/);
+  await fs.writeFile(path.join(root, 'data', id, 'persistent.txt'), 'keep');
+  const grant = await plugins.select([id]);
+  await plugins.manage({ action: 'disable', id }); await assert.rejects(plugins.broker(grant, 'plugin_mcp', { id, server: 'orca', method: 'discover' }), /revoked/);
+  assert.equal(supervisors.snapshot().supervisors.length, 2, 'disabling the integration preserves existing saved reports and watches');
+  await assert.rejects(call('orca_status'), /disabled/);
+  const manifest = JSON.parse(await fs.readFile(path.join(source, 'plugin.json'), 'utf8')); manifest.version = '1.0.1'; await fs.writeFile(path.join(source, 'plugin.json'), JSON.stringify(manifest));
+  await supervisors.close(); await plugins.close(); start(); await Promise.all([plugins.ready, supervisors.ready]);
+  assert.equal((await plugins.list()).plugins[0].enabled, false, 'a disabled bundled plugin stays disabled across restart');
+  assert.equal((await plugins.list()).plugins[0].version, '1.0.1', 'app refresh updates the bundled snapshot without re-enabling it');
+  assert.equal(await fs.readFile(path.join(root, 'data', id, 'persistent.txt'), 'utf8'), 'keep');
+  assert.match(supervisors.get(launched.id).brief, /experiment finished/);
+  allow = false; await plugins.enable(id); assert.equal(prompts, 0); assert.equal((await call('orca_status')).summary.working, 1);
+  allow = true;
+  const uncertain = await call('create_supervisor', { ...input, title: 'Uncertain launch', instructions: 'Uncertain launch' });
+  assert.equal(uncertain.launch.operationId, 'launch_uncertain', 'durable replay identity survives the MCP boundary');
+  assert.equal((await call('create_supervisor', { ...input, title: 'Uncertain launch', instructions: 'Uncertain launch' })).id, uncertain.id, 'uncertain launch is not retried as fresh work');
+  await assert.rejects(plugins.install(source, id), /cannot inherit/);
+  const thirdParty = await plugins.install(source); await plugins.enable(thirdParty.id); assert.equal(prompts, 1, 'a same-name third-party copy still needs real consent');
+  await assert.rejects(plugins.invoke({ id: thirdParty.id, server: 'orca', method: 'call_tool', name: 'supervisors', argumentsJson: '{}' }), /no host binding|not authorized/);
+  const log = (await fs.readFile(path.join(temp, 'cli.log'), 'utf8')).trim().split('\n').map(JSON.parse);
+  assert.ok(log.every((r) => r.orca.length === 0)); assert.equal(log.filter((r) => r.name === 'agent').length, 2, 'one confirmed and one uncertain launch; no duplicate dispatch');
+  assert.ok(log.every((r) => !r.args.includes('check') && !r.args.includes('--from')));
+  console.log('Bundled Orca plugin: real MCP/CLI, read-only gates, supervisor host bridge, reports, migration/restart, revocation and privilege isolation passed');
+} finally { await supervisors?.close(); await plugins?.close(); await fs.rm(temp, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 }); }

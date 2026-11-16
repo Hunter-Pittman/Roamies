@@ -8,8 +8,18 @@
 import { spawn } from 'node:child_process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
 
 const NAME = /^[a-z0-9-]{1,40}$/;
+// All instances in this sidecar serialize updates to the same file, including plugin and existing app keys.
+const fileQueues = new Map();
+const serializeFile = (file, fn) => {
+  if (process.platform === 'win32') file = file.toLowerCase();
+  const next = (fileQueues.get(file) ?? Promise.resolve()).then(fn);
+  const settled = next.catch(() => {}); fileQueues.set(file, settled);
+  settled.finally(() => { if (fileQueues.get(file) === settled) fileQueues.delete(file); });
+  return next;
+};
 
 // Run a command with `input` on stdin; resolves { code, stdout, stderr }, never rejects.
 export const runInput = (cmd, args, input = '', timeout = 15000) => new Promise((res) => {
@@ -66,18 +76,19 @@ export function createSecrets({ platform = process.platform, hands = '', dataDir
 
   // Encrypted blobs (Windows) or, in test runs only, plain values: one JSON file, owner-only.
   const fileStore = (file, seal, unseal, kind) => {
-    const read = async () => { try { return JSON.parse(await fs.readFile(file, 'utf8')); } catch { return {}; } };
+    file = path.resolve(file);
+    const read = async () => { try { const value = JSON.parse(await fs.readFile(file, 'utf8')); if (!value || Array.isArray(value) || typeof value !== 'object') throw new Error('Invalid secret store.'); return value; } catch (e) { if (e.code === 'ENOENT') return {}; throw e; } };
     const write = async (all) => {
       await fs.mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
-      const tmp = `${file}.${process.pid}.tmp`;
-      await fs.writeFile(tmp, JSON.stringify(all, null, 2), { mode: 0o600 });
-      await fs.rename(tmp, file);
+      const tmp = `${file}.${randomUUID()}.tmp`;
+      try { await fs.writeFile(tmp, JSON.stringify(all, null, 2), { mode: 0o600, flag: 'wx' }); await fs.rename(tmp, file); }
+      finally { await fs.unlink(tmp).catch((e) => { if (e.code !== 'ENOENT') throw e; }); }
     };
     return {
       kind,
-      async get(name) { check(name); const v = (await read())[name]; return v == null ? null : unseal(v); },
-      async set(name, value) { check(name); const all = await read(); all[name] = await seal(value); await write(all); },
-      async delete(name) { check(name); const all = await read(); if (name in all) { delete all[name]; await write(all); } },
+      async get(name) { check(name); return serializeFile(file, async () => { const v = (await read())[name]; return v == null ? null : unseal(v); }); },
+      async set(name, value) { check(name); return serializeFile(file, async () => { const all = await read(); all[name] = await seal(value); await write(all); }); },
+      async delete(name) { check(name); return serializeFile(file, async () => { const all = await read(); if (name in all) { delete all[name]; await write(all); } }); },
     };
   };
 

@@ -4,8 +4,29 @@ import { ASK, BLOCK, SAFE, checkDrawAction, checkLink, checkMemoryEndpoint, chec
 import fs from 'node:fs';
 import os from 'node:os';
 import nodePath from 'node:path';
+import { checkPluginEndpoint, checkPluginStorage, pluginEnvironment, checkPluginCommand, checkPluginHostRequest } from '../safety.mjs';
 
 const HOME = '/Users/ken';
+assert.equal(checkPluginEndpoint('http://127.0.0.1:8765/mcp').level, SAFE, 'typed plugin origin policy allows an explicitly configured loopback endpoint');
+assert.equal(checkUrl('http://127.0.0.1:8765/mcp').level, BLOCK, 'plugin endpoints do not weaken ordinary web-fetch policy');
+assert.throws(() => checkPluginEndpoint('http://example.com/mcp'));
+assert.throws(() => checkPluginCommand('node -e payload'), /one bare/);
+const hostBinding = { hostServices: { supervisors: ['snapshot', 'launch'] }, actionHostOperations: { supervisors: ['launch'] } };
+assert.doesNotThrow(() => checkPluginHostRequest(hostBinding, 'supervisors', 'snapshot', false));
+assert.throws(() => checkPluginHostRequest(null, 'supervisors', 'snapshot', true), /not authorized/);
+assert.throws(() => checkPluginHostRequest(hostBinding, 'secrets', 'get', true), /not authorized/);
+assert.throws(() => checkPluginHostRequest(hostBinding, 'supervisors', 'constructor', true), /not authorized/);
+assert.throws(() => checkPluginHostRequest(hostBinding, 'supervisors', 'launch', false), /Allow File Edits/);
+assert.throws(() => pluginEnvironment({ plugin_root: 'override' }, '/root', '/data', {}, 'win32'), /cannot declare/);
+assert.equal(checkWrite('/Users/ken/Roamies/Plugins/state.json', HOME).level, BLOCK);
+assert.equal(checkWrite('/Users/ken/Roamies/Plugins/package/server.js', HOME, { own: '/Users/ken/Roamies', exists: true }).level, BLOCK);
+assert.equal(checkWrite('/Users/ken/Roamies/Plugins/state.json', HOME, { pluginStorage: true }).level, SAFE);
+assert.ok(!(JSON.stringify((await import('../safety.mjs')).redactArgs('plugin_mcp', { argumentsJson: '{"private":"sensitive"}' }))).includes('sensitive'));
+{
+  const owned = fs.realpathSync.native(fs.mkdtempSync(nodePath.join(os.tmpdir(), 'plugin-policy-')));
+  try { assert.equal(await checkPluginStorage(owned, 'state.json'), nodePath.join(owned, 'state.json')); await assert.rejects(checkPluginStorage(owned, '../escape')); }
+  finally { fs.rmSync(owned, { recursive: true, force: true }); }
+}
 for (const url of ['http://127.0.0.1:8888', 'https://[::1]:8888/']) assert.equal(checkMemoryEndpoint(url).level, SAFE);
 for (const url of ['http://localhost:8888', 'https://example.com', 'http://192.168.1.2', 'file:///tmp/memory',
   'http://127.0.0.1:8888/other', 'http://user:secret@127.0.0.1', 'http://127.0.0.1/?url=remote', 'http://127.0.0.1/#remote', 'garbage']) {

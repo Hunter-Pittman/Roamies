@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { createOrca } from '../orca.mjs';
-import { createSupervisors, parseSupervisorRequest } from '../supervisors.mjs';
+import { createSupervisors, parseSupervisorRequest } from './supervisorfixture.mjs';
 import { writeJson } from '../store.mjs';
 import { resolveToolSchema } from '@kenkaiiii/gg-ai';
 const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'roamies-model-supervisor-')));
