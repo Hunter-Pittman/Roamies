@@ -243,7 +243,13 @@ const loadMemory = () => {
   if (!Array.isArray(memory.facts)) memory.facts = []; // added later: older files have no facts yet
   return memory;
 };
-const saveMemory = () => (memoryReadOnly ? Promise.resolve() : writeJson(MEMORY, memory, { backup: true }));
+const factListeners = new Set();
+export function onFactsChanged(listener) { factListeners.add(listener); return () => factListeners.delete(listener); }
+const saveMemory = async () => {
+  if (memoryReadOnly) return;
+  await writeJson(MEMORY, memory, { backup: true });
+  for (const listener of factListeners) listener(listFacts());
+};
 
 /**
  * Due time → ms, or null for none, or undefined if unreadable. Accepts local times

@@ -442,6 +442,16 @@ export function isPrivateAddress(ip) {
 
 /** web_fetch: public web pages only, so a web page can't steer Sidekick into the user's router or local apps.
  *  checkFetch also checks the addresses a name resolves to, before each request and redirect hop. */
+// Developer-only memory trial. Literal loopback addresses avoid DNS rebinding; redirects are refused by its client.
+export function checkMemoryEndpoint(url) {
+  try {
+    const u = new URL(String(url));
+    if (!['http:', 'https:'].includes(u.protocol) || !['127.0.0.1', '[::1]'].includes(u.hostname)
+      || u.username || u.password || u.pathname !== '/' || u.search || u.hash) return verdict(BLOCK, 'Memory trial requires a literal loopback HTTP origin.');
+    return verdict(SAFE);
+  } catch { return verdict(BLOCK, 'Invalid memory endpoint.'); }
+}
+
 export function checkUrl(url) {
   let u;
   try { u = new URL(String(url)); } catch { return verdict(BLOCK, "That isn't a valid link."); }

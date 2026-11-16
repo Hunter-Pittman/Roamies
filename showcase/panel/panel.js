@@ -417,11 +417,27 @@
       on: { click: () => { if (ui.mtab !== id) { ui.mtab = id; disarm(); render(`tab-${id}`); } } },
     }, label);
     return [
+      hindsightSettings(),
       el('div', { className: 'mhead' },
         el('div', { className: 'tabs', role: 'tablist', 'aria-label': 'Memory' }, tabBtn('facts', 'What I remember'), tabBtn('commits', 'Commitments')),
         link('Get to know me', () => act('intro', true), { k: 'intro', disabled: state.intro })),
       ...(on === 'commits' ? commitList() : factList()),
     ];
+  }
+  function hindsightSettings() {
+    const h = state.hindsight ?? { on: false, phase: 'off' };
+    const messages = {
+      off: 'Run Hindsight setup before enabling. Your saved facts stay available locally.',
+      checking: 'Connecting to Hindsight...',
+      ready: `Connected${h.ms != null ? ` · last search ${h.ms} ms` : ''}. Searching your saved facts.`,
+      offline: 'Hindsight is unavailable. Using local memory. Run setup, then check again.',
+      invalid: 'The Hindsight address is invalid. Setup uses a service on this computer.',
+    };
+    return el('div', { className: 'group hindsight-settings' },
+      toggle('Hindsight memory', 'Find saved facts even when you phrase things differently.', h.on, () => act('hindsight'), 'hindsight'),
+      el('div', { className: 'setting' }, el('p', { className: 'usage', role: 'status', textContent: messages[h.phase] ?? messages.off }),
+        h.on ? link('Check again', () => act('hindsight_check'), { k: 'hindsight_check', disabled: h.phase === 'checking' }) : null),
+      el('p', { className: 'usage', textContent: 'Saved facts are shared with your model provider. Turning off keeps existing Hindsight data.' }));
   }
   function factList() {
     const f = state.facts, q = ui.q.trim().toLowerCase();
@@ -1018,6 +1034,7 @@
       ],
       usage: { requests: 14, tokens: 31240 },
       facts: [{ id: 'f1', text: 'Prefers short answers in the morning' }, { id: 'f2', text: 'Working on the Roamies 1.0 launch, due end of month' }, { id: 'f3', text: 'Has a cat called Miso' }],
+      hindsight: { on: q.get('hindsight') === 'on' || q.get('hindsight') === 'offline', phase: q.get('hindsight') === 'offline' ? 'offline' : q.get('hindsight') === 'on' ? 'ready' : 'off', ms: q.get('hindsight') === 'on' ? 318 : null },
       commitments: [{ id: 'c1', text: 'Send the launch email', when: 'Fri 7 Nov, 10:00', overdue: false }, { id: 'c2', text: 'Book the dentist', when: 'Mon 3 Nov, 09:00', overdue: true }],
       name: 'Roamie', look: 'classic', looks: [['classic', 'Roamie'], ['jarvis', 'JARVIS'], ['anime', 'Anime Girl'], ['sarah', 'Sarah'], ['adrian', 'Adrian'], ['rita', 'Rita X']],
       size: 'default', sizes: [['default', 'Default'], ['small', 'Small'], ['cursor', 'Cursor']],
@@ -1068,6 +1085,8 @@
       // A look change comes back as new state, as from the sidecar, so the Roamie's reaction can be seen.
       if (args.msg?.type === 'copy_problem') setTimeout(() => window.__panel({ kind: 'copied', which: 'problem', ok: q.get('copy') !== 'fail' }), 150);
       const id = args.msg?.id ?? '';
+      if (id === 'hindsight') { s.hindsight = { on: !s.hindsight.on, phase: s.hindsight.on ? 'off' : 'ready', ms: null }; setTimeout(() => window.__panel({ kind: 'state', state: s }), 120); }
+      if (id === 'hindsight_check') { s.hindsight.phase = 'ready'; setTimeout(() => window.__panel({ kind: 'state', state: s }), 120); }
       if (id.startsWith('size:')) { s.size = id.slice(5); setTimeout(() => window.__panel({ kind: 'state', state: s }), 120); }
       if (id.startsWith('tts:')) { s.tts = id.slice(4); s.studio = s.tts === 'voicestudio' ? STUDIO[q.get('studio')] ?? STUDIO.on : null; setTimeout(() => window.__panel({ kind: 'state', state: s }), 120); }
       if (id.startsWith('studiovoice:') && s.studio) { s.studio.voice = id.slice(12) === 'default' ? null : id.slice(12); setTimeout(() => window.__panel({ kind: 'state', state: s }), 120); }

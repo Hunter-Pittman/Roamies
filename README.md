@@ -266,6 +266,21 @@ about the screen, go to the AI provider you pick. [PRIVACY.md](PRIVACY.md) lists
    `~/.gg/auth.json` if you use GG Coder.
 4. Delete the Fish Audio key: `secret-tool clear service com.kenkai.roamies account fish-audio`.
 
+## Optional Hindsight memory
+
+The Memory page has an opt-in **Hindsight memory** switch for finding saved facts even when you phrase things
+differently. To set up the local service, install Node.js 22+ and Docker with Compose, start Docker, sign in to
+ChatGPT in Roamies, then run this from the repository root:
+
+```sh
+node setup-hindsight.mjs
+```
+
+Keep the setup terminal open, then turn on **Memory → Hindsight memory** in a build containing this feature.
+The switch takes effect immediately and is saved between launches. Local memory remains available when the
+service is off or unavailable. Hindsight stores data locally; extraction uses your selected ChatGPT model and
+plan. [Setup details, provider options and cleanup](showcase/tauri/sidecar/HINDSIGHT.md).
+
 ## Build with the framework
 
 Every Roamie's brain is a [gg-framework](https://github.com/KenKaiii/gg-framework) agent running in a Node

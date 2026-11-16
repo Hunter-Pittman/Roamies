@@ -28,6 +28,9 @@ import {
   touchFacts, forDisk, forProvider, loadLatestSession, newSession, openCommitments, pruneSessions, readJson, saveSession, takeDueReminders, updateCommitment, writeJson,
 } from './store.mjs';
 import { foldInput, foldPrompt, memoryInput, memoryPrompt, oneShot, parseBrain, transcript } from './brain.mjs';
+import { selectTrialFacts } from './hindsight.mjs';
+import { createHindsightSettings, hindsightOn } from './hindsight-settings.mjs';
+import { onFactsChanged } from './store.mjs';
 import { briefNote } from './brief.mjs';
 import { CHECK_MS, DEFAULT_DISTRACTIONS, check as focusCheck, parseDistractions, startBlock } from './focus.mjs';
 import { saveCardImage } from './cardimage.mjs';
@@ -618,9 +621,10 @@ The <live-state> block at the top of the user's newest message is the current st
 
 // Made once per request. `context` (the latest user message) picks which facts are relevant. → { turn, memory }
 let lastFactIds = [];
+let recalledFacts = []; // Hindsight document IDs for this request; checked against current facts on every call.
 let frontNow = ''; // set just before each request (whereNow)
 const livePrompt = (context = '') => {
-  const facts = pickFacts(context, 40), total = listFacts().length;
+  const facts = selectTrialFacts(listFacts(), pickFacts(context, 40), recalledFacts), total = listFacts().length;
   lastFactIds = facts.map((f) => f.id);
   const open = commitmentsText(), done = doneTodayText(), working = agents.liveText();
   const turn = `Live state (current as of this moment):
@@ -954,6 +958,10 @@ const logLine = (kind, data) => {
   fs.mkdir(LOG_DIR, { recursive: true, mode: 0o700 }).then(() => fs.appendFile(path.join(LOG_DIR, `${day}.log`), line, { mode: 0o600 })).catch(() => {});
 };
 
+const hindsight = createHindsightSettings({ dir: STORE_DIR, facts: listFacts, log: logLine, changed: () => setImmediate(panel) });
+hindsight.setEnabled(hindsightOn(config)).catch(() => logLine('hindsight_failed', { operation: 'setup' }));
+onFactsChanged((facts) => hindsight.sync(facts));
+
 // ---------- problems ----------
 // Every error someone sees is worded by errors.mjs: one short line. The raw error goes to the log (scrubbed) and is
 // kept as the last problem, which Copy details in the guide and the panel puts on the clipboard.
@@ -1087,6 +1095,8 @@ async function prompt(text, image = null, note = '', byVoice = false, news = nul
   menu();
   controller = new AbortController();
   agent.setSignal(controller.signal);
+  hindsight.sync(listFacts());
+  recalledFacts = !news && !intro ? await hindsight.recall(text) : [];
   // "Send an agent to…": the agents' corner hatches one instead of the thought cloud while the brief is written.
   const agentish = !intro && !news && wantsAgent(text);
   turnImage = image;
@@ -1864,6 +1874,7 @@ function panelState() {
     recent: activity.recent,
     usage: usageToday.requests ? { requests: usageToday.requests, tokens: usageToday.tokens } : null,
     facts: listFacts().slice().reverse().map((f) => ({ id: f.id, text: f.text })),
+    hindsight: hindsight.state(),
     commitments: openCommitments().map((c) => ({ id: c.id, text: c.text, due: c.due ?? null, when: c.due ? `${fmtWhen(c.due)}${c.repeat ? ` · repeats ${repeatLabel(c.repeat)}` : ''}` : '', overdue: !!(c.due && c.due < Date.now()), repeat: c.repeat ?? null })),
     look: config.look ?? 'classic', looks: LOOKS.map(([id, label]) => [id, label]), name: lookName(),
     size: sizeNow(), sizes: SIZES,
@@ -2071,6 +2082,14 @@ async function onMenu(id, via) {
     config.geminiModel = id.slice(12); saveConfig(); if (tts().id === 'gemini') speech.setModel(config.geminiModel); menu();
   }
   else if (id === 'morningbrief') { config.morningBrief = !config.morningBrief; saveConfig(); menu(); }
+  else if (id === 'hindsight') {
+    config.hindsight = !hindsight.state().on;
+    recalledFacts = []; liveBlocks.clear();
+    saveConfig();
+    hindsight.setEnabled(config.hindsight).catch(() => panelNote('Hindsight is unavailable. Local memory is still working.', true));
+    menu();
+  }
+  else if (id === 'hindsight_check') await hindsight.check();
   else if (id === 'brieftodoist' && HANDS_OK) { config.briefTodoist = !config.briefTodoist; saveConfig(); menu(); }
   else if (id === 'focusstop') stopFocus(true);
   else if (id === 'distractions' && HANDS_OK) {
@@ -2420,6 +2439,7 @@ createInterface({ input: process.stdin }).on('line', (line) => {
   if (busy) syncSession();
   agents.stopAll();
   closeSpare();
+  hindsight.close();
   Promise.race([flushWrites(), new Promise((r) => setTimeout(r, 3000))]).finally(() => process.exit(0));
 });
 

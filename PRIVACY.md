@@ -25,6 +25,14 @@ key) receives:
 
 **GitHub** is used to check for and download updates.
 
+**Hindsight memory (optional):** when enabled on the Memory page, a separate service on your computer indexes
+Roamies' saved facts. The model provider configured for that service receives facts for extraction and may
+receive queries for retrieval. The repository setup script uses your existing Roamies ChatGPT sign-in through
+a local bridge; it does not copy the ChatGPT tokens into Hindsight. Chats, screenshots and tool results are not
+retained by this trial. The Hindsight database lives in a local Docker volume, separately from `~/.gg`.
+Turning the switch off stops future indexing and retrieval, but keeps data already stored. See the
+[Hindsight setup guide](showcase/tauri/sidecar/HINDSIGHT.md#forgetting-and-rollback) for deletion and cleanup.
+
 **Hugging Face** is used once, on Windows and Linux, to download the speech model.
 
 **Wikipedia** is used to fetch photos for photo cards, and websites' `favicon.ico` is fetched for source cards.

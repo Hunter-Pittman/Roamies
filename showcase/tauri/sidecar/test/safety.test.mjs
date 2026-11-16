@@ -1,11 +1,17 @@
 // The safety rules: what runs on its own, what needs a yes, what never runs. Run: npm test
 import assert from 'node:assert/strict';
-import { ASK, BLOCK, SAFE, checkDrawAction, checkLink, checkOpen, checkRead, checkUrl, checkWrite, classifyCommand, isPrivateAddress, isYes, splitCommand } from '../safety.mjs';
+import { ASK, BLOCK, SAFE, checkDrawAction, checkLink, checkMemoryEndpoint, checkOpen, checkRead, checkUrl, checkWrite, classifyCommand, isPrivateAddress, isYes, splitCommand } from '../safety.mjs';
 import fs from 'node:fs';
 import os from 'node:os';
 import nodePath from 'node:path';
 
 const HOME = '/Users/ken';
+for (const url of ['http://127.0.0.1:8888', 'https://[::1]:8888/']) assert.equal(checkMemoryEndpoint(url).level, SAFE);
+for (const url of ['http://localhost:8888', 'https://example.com', 'http://192.168.1.2', 'file:///tmp/memory',
+  'http://127.0.0.1:8888/other', 'http://user:secret@127.0.0.1', 'http://127.0.0.1/?url=remote', 'http://127.0.0.1/#remote', 'garbage']) {
+  assert.equal(checkMemoryEndpoint(url).level, BLOCK, url);
+}
+assert.equal(checkUrl('http://127.0.0.1:8888').level, BLOCK, 'memory exception never opens up web_fetch');
 const failures = [];
 const cases = (label, fn, table) => {
   for (const [input, want] of table) {
