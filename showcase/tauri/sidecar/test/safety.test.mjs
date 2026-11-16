@@ -1,6 +1,6 @@
 // The safety rules: what runs on its own, what needs a yes, what never runs. Run: npm test
 import assert from 'node:assert/strict';
-import { ASK, BLOCK, SAFE, checkDrawAction, checkLink, checkMemoryEndpoint, checkOpen, checkRead, checkUrl, checkWrite, classifyCommand, isPrivateAddress, isYes, splitCommand } from '../safety.mjs';
+import { ASK, BLOCK, SAFE, checkDrawAction, checkLink, checkMemoryEndpoint, checkOpen, checkRead, checkUrl, checkWrite, classifyCommand, isPrivateAddress, isYes, splitCommand, orcaReadArgs, orcaSupervisorArgs, orcaSupervisorMessageArgs, checkSupervisorStorage } from '../safety.mjs';
 import fs from 'node:fs';
 import os from 'node:os';
 import nodePath from 'node:path';
@@ -12,6 +12,29 @@ for (const url of ['http://localhost:8888', 'https://example.com', 'http://192.1
   assert.equal(checkMemoryEndpoint(url).level, BLOCK, url);
 }
 assert.equal(checkUrl('http://127.0.0.1:8888').level, BLOCK, 'memory exception never opens up web_fetch');
+// Typed local observation cannot be expanded into worker commands, remote access or file writes.
+assert.deepEqual(orcaReadArgs('tasks', { runId: 'run_123' }), ['orchestration', 'task-list', '--run', 'run_123', '--full', '--environment', 'local', '--json']);
+assert.deepEqual(orcaReadArgs('activity', {}), ['worktree', 'ps', '--agent-wait', '--limit', '1000', '--environment', 'local', '--json']);
+assert.throws(() => orcaReadArgs('activity', { environment: 'remote' }));
+assert.ok(orcaReadArgs('transcript', { dispatchId: 'ctx_123' }).includes('transcript'));
+const launchInput = { workspace: 'identity:wt2:local:abc-123', agent: 'codex', prompt: 'Generate tasks from the objective; quotes " and shell text $(do-not-run) stay data.' };
+assert.ok(orcaSupervisorArgs(launchInput).includes(launchInput.prompt));
+assert.ok(!orcaSupervisorArgs(launchInput).includes('--model'), 'model selection is omitted unless requested');
+for (const change of [{ workspace: 'current' }, { workspace: 'identity:wt2:ssh:remote' }, { agent: 'codex --dangerously-bypass-approvals-and-sandbox' }, { model: '--help' }, { prompt: '' }]) assert.throws(() => orcaSupervisorArgs({ ...launchInput, ...change }));
+assert.ok(orcaSupervisorMessageArgs({ handle: 'orca_session_id:abc-123', text: 'Only run the remaining experiments.' }).includes('--enter'));
+assert.throws(() => orcaSupervisorMessageArgs({ handle: '--help', text: 'x' }));
+assert.throws(() => orcaSupervisorMessageArgs({ handle: 'terminal_123', text: 'x\x1b[A' }));
+for (const [op, input] of [['worker-start', {}], ['tasks', { runId: '--help' }], ['tasks', { runId: 'run_123', environment: 'remote' }], ['runs', { cursor: ';shutdown' }], ['worker', { dispatchId: 'ctx_123;echo' }]]) assert.throws(() => orcaReadArgs(op, input));
+{
+  const owned = fs.realpathSync.native(fs.mkdtempSync(nodePath.join(os.tmpdir(), 'supervisor-safety-')));
+  assert.equal(checkSupervisorStorage(nodePath.join(owned, 'state.json'), owned).level, SAFE);
+  assert.equal(checkSupervisorStorage(nodePath.join(owned, 's_11111111-1111-4111-8111-111111111111.report.json'), owned).level, SAFE);
+  assert.equal(checkSupervisorStorage(nodePath.join(owned, 'arbitrary.report.json'), owned).level, BLOCK);
+  assert.equal(checkSupervisorStorage(nodePath.join(owned, '../state.json'), owned).level, BLOCK);
+  assert.equal(checkSupervisorStorage(nodePath.join(owned, 'auth.json'), owned).level, BLOCK);
+  assert.equal(checkSupervisorStorage(nodePath.join(owned, 'sub/state.json'), owned).level, BLOCK);
+  fs.rmdirSync(owned);
+}
 const failures = [];
 const cases = (label, fn, table) => {
   for (const [input, want] of table) {
@@ -191,6 +214,8 @@ console.log('safety tests: passed');
   assert.equal(r.steps[0].field, 'Email', 'which field is kept; what went in is not');
   assert.deepEqual(redactArgs('write_file', { path: '~/a.txt', content: 'hello' }), { path: '~/a.txt', content: '[5 chars]' });
   assert.deepEqual(redactArgs('open', { target: 'Safari' }), { target: 'Safari' });
+  assert.deepEqual(redactArgs('create_supervisor', { title: 'Experiments', objective: 'private', instructions: 'secret' }), { title: 'Experiments', objective: '[7 chars]', instructions: '[6 chars]' });
+  assert.deepEqual(redactArgs('message_supervisor', { id: 's_123', text: 'secret' }), { id: 's_123', text: '[6 chars]' });
   // Regression: a model sent act_in_app's steps as one string; logging it threw "(args.steps ?? []).map is not a
   // function" and the whole request died instead of the tool answering that steps must be a list.
   assert.deepEqual(redactArgs('act_in_app', { target: 'Safari', steps: '[{"do":"type","text":"hunter2"}]' }), { target: 'Safari', steps: '[string, 32 chars]' }, 'steps as a string: its size only, never what was typed');

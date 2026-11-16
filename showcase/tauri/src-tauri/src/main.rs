@@ -322,7 +322,15 @@ fn to_sidekick_buddy(app: &AppHandle, msg: &Value) {
 }
 
 #[tauri::command]
-fn sidecar_send(app: AppHandle, msg: Value) {
+fn sidecar_send(app: AppHandle, window: WebviewWindow, msg: Value) {
+    if msg.get("type").and_then(Value::as_str) == Some("supervisor_request") {
+        let Ok(url) = window.url() else { return };
+        let local = (url.scheme() == "tauri" && url.host_str() == Some("localhost"))
+            || (url.scheme() == "http" && url.host_str() == Some("tauri.localhost"));
+        if !is_overlay(window.label()) || !local || url.path() != "/desktop.html" || msg.to_string().len() > 4096 {
+            return;
+        }
+    }
     to_sidecar(&app, &msg);
 }
 
@@ -965,7 +973,8 @@ fn starts_interaction(msg: &Value) -> bool {
     let kind = msg.get("kind").and_then(Value::as_str);
     let ty = |k: &str| msg.get(k).and_then(Value::as_str);
     match kind {
-        Some("summon" | "say" | "ask" | "list") => true,
+        Some("summon" | "say" | "ask" | "list" | "supervisor_alert") => true,
+        Some("supervisors") => msg.pointer("/e/kind").and_then(Value::as_str) == Some("open"),
         Some("voice") => ty("type") == Some("state") && ty("state") == Some("listening"),
         Some("agent") => msg.pointer("/e/type").and_then(Value::as_str) == Some("start"),
         _ => false,
@@ -976,7 +985,7 @@ fn starts_interaction(msg: &Value) -> bool {
 /// (The turn's start isn't one: the pill's dots are what shows while it thinks.)
 fn shows_answer(msg: &Value) -> bool {
     match msg.get("kind").and_then(Value::as_str) {
-        Some("summon" | "say" | "ask" | "list") => true,
+        Some("summon" | "say" | "ask" | "list" | "supervisor_alert") => true,
         Some("agent") => match msg.pointer("/e/type").and_then(Value::as_str) {
             Some("tool") => msg.pointer("/e/anim").is_some_and(|a| !a.is_null()),
             Some("text" | "emote" | "draw" | "act_start" | "trail" | "done" | "error") => true,
@@ -1655,7 +1664,7 @@ fn handle_sidecar(app: &AppHandle, msg: Value) {
 /// for binding to keys in the desktop's keyboard settings, the one kind of global shortcut Wayland lets every app
 /// have. None: a plain launch.
 fn cli_action(args: &[String]) -> Option<&'static str> {
-    const ACTIONS: [&str; 5] = ["summon", "list", "talk", "ask", "panel"];
+    const ACTIONS: [&str; 6] = ["summon", "list", "talk", "ask", "panel", "supervisors"];
     args.iter().skip(1).find_map(|a| ACTIONS.into_iter().find(|f| a.strip_prefix("--") == Some(*f)))
 }
 
@@ -1666,6 +1675,7 @@ fn second_launch(app: &AppHandle, args: &[String]) {
     match cli_action(args) {
         Some("summon") => to_overlays(app, &json!({ "kind": "summon" })),
         Some("panel") => show_panel(app, None, false),
+        Some("supervisors") => to_sidecar(app, &json!({ "type": "menu", "id": "supervisors" })),
         // The sidecar's to do: it knows whether voice is on and ready, and owns the ask bubble and the list.
         Some(action) => to_sidecar(app, &json!({ "type": "cli", "action": action })),
         None if cfg!(target_os = "linux") => show_panel(app, None, false),
@@ -1764,7 +1774,7 @@ mod tests {
     fn a_second_launch_says_what_it_wants_with_one_flag() {
         let args = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
         assert_eq!(cli_action(&args(&["roamies"])), None, "a plain launch");
-        for f in ["summon", "list", "talk", "ask", "panel"] {
+        for f in ["summon", "list", "talk", "ask", "panel", "supervisors"] {
             assert_eq!(cli_action(&args(&["/usr/bin/roamies", &format!("--{f}")])), Some(f));
         }
         assert_eq!(cli_action(&args(&["roamies", "--verbose", "--talk"])), Some("talk"), "other arguments are skipped");
@@ -1772,6 +1782,16 @@ mod tests {
         assert_eq!(cli_action(&args(&["roamies", "--talks"])), None);
         assert_eq!(cli_action(&args(&["--talk"])), None, "the first argument is the program");
         assert_eq!(cli_action(&args(&[])), None);
+    }
+
+    #[test]
+    fn supervisor_alerts_follow_the_cursor_but_progress_does_not() {
+        let alert = json!({ "kind": "supervisor_alert", "text": "Your experiment needs you." });
+        assert!(starts_interaction(&alert));
+        assert!(shows_answer(&alert));
+        let state = json!({ "kind": "supervisors", "e": { "kind": "state" } });
+        assert!(!starts_interaction(&state));
+        assert!(!shows_answer(&state));
     }
 
     #[test]

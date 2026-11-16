@@ -11,6 +11,7 @@
   if (Roamie.ink) { Roamie.ink.send = send; Roamie.ink.invoke = (cmd, args) => invoke(cmd, args).catch(() => {}); }
   // The agents' corner (agent-home.js): Stop, Allow, file tiles and Open folder go to the sidecar.
   if (Roamie.agentHome) Roamie.agentHome.send = send;
+  if (Roamie.supervisors) Roamie.supervisors.send = send;
   window.__roamieClick = (x, y) => Roamie.ink?.click(x, y);
 
   window.__roamieSafe = (s) => Roamie.setSafe?.(s);
@@ -57,6 +58,8 @@
       const bar = Roamie.askBarRect?.();
       if (bar) grown(bar);
       for (const r of Roamie.homeRects?.() ?? []) grown(r);
+      const supervisors = Roamie.supervisorRect?.();
+      if (supervisors) grown(supervisors);
       // Sampled a little past the canvas: hit areas can reach beyond what's drawn.
       const box = Roamie.hitBox();
       if (box) rects.push(...Roamie.hitRects(Roamie.hitTest, [box[0] - 48, box[1] - 48, box[2] + 96, box[3] + 96]));
@@ -441,6 +444,16 @@
       field.setAttribute('aria-label', `Message for ${NAMES[m.look] ?? NAMES.classic}`);
       return;
     }
+    if (m.kind === 'supervisors') {
+      if (m.e?.kind === 'open') Roamie.supervisors?.open();
+      else Roamie.supervisors?.event(m.e);
+      return;
+    }
+    if (m.kind === 'supervisor_alert') {
+      Roamie.supervisors?.notify(m, { blocked: () => !!ask || hearing || responding || document.hidden || !!Roamie.game,
+        say: (text, mood) => getAgent()?.say(text, { mood }) });
+      return;
+    }
     if (!getAgent()) return;
     if (m.kind === 'agents') {
       // A launch flies out of the visible Roamie (or from the cursor); the hatch, when there is one, wins.
@@ -486,7 +499,7 @@
   // way out once the Roamie has gone). Cards left on screen have their own close button and don't hold Esc. The
   // reminders card does while it shows (it goes by itself in a few seconds).
   // A voice turn counts too: on macOS the sidekick steps away while the mic is on and until the answer shows.
-  const up = () => !!(getAgent()?.visible || ask || Roamie.panel?.isOpen || Roamie.ink?.playing || Roamie.ink?.loose || Roamie.ink?.reminding || hearing || waveTurn || Roamie.voiceOut?.playing());
+  const up = () => !!(getAgent()?.visible || ask || Roamie.supervisors?.isOpen || Roamie.panel?.isOpen || Roamie.ink?.playing || Roamie.ink?.loose || Roamie.ink?.reminding || hearing || waveTurn || Roamie.voiceOut?.playing());
   function onEsc() {
     dropAutoListen();
     const a = getAgent();
@@ -494,6 +507,7 @@
     if (ask) { finishAsk(null); return; }
     if (hearing) { hearing = false; send({ type: 'listen_cancel' }); return; }
     if (responding || Roamie.voiceOut?.playing()) { send({ type: 'menu', id: 'stop', via: 'esc' }); Roamie.voiceOut?.stop(); return; }
+    if (Roamie.supervisors?.isOpen) { Roamie.supervisors.close(); return; }
     // A drawing on screen: Esc takes it all away (and the sidecar forgets its parts).
     if (Roamie.ink?.busy) { Roamie.ink.clear({ all: true }); send({ type: 'ink_cleared' }); return; }
     if (Roamie.panel?.isOpen) Roamie.panel.close();

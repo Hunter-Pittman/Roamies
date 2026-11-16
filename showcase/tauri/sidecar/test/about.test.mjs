@@ -23,6 +23,8 @@ for (const t of [mac, win, linux]) assert.ok(!/Behavior \(|, Voice \(/.test(t), 
 // The Model page's local servers (#63, #66): Ollama, LM Studio and any other server, as the panel names them.
 assert.match(win, /Model \(.*Ollama and LM Studio, each with Connect or Disconnect.*Another server with Add server.*Its models can see images/);
 for (const t of [mac, win, linux]) {
+  assert.match(t, /read-only overlay card/);
+  assert.match(t, /no forms, task pickers or dispatch controls/);
   assert.match(t, /Save Diagnostics/);
   assert.match(t, /github\.com\/KenKaiii\/Roamies/);
   assert.ok(!/\$\{|undefined/.test(t), 'every part is filled in');

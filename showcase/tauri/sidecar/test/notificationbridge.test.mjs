@@ -1,0 +1,30 @@
+// Exercise the shipped host + overlay bridge together, without a native window or paid model call.
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import vm from 'node:vm';
+import { parseHTML } from 'linkedom';
+const { window, document } = parseHTML('<html><body></body></html>');
+const frames = [], requests = [], bubbles = [];
+const creature = { setAuto() {}, hide() {}, say(text) { bubbles.push(text); return {}; } };
+window.__TAURI__ = { core: { invoke: async (name, args) => { requests.push({ name, ...args }); } } };
+window.Roamie = { tiles: [{ creature: { agent: creature } }], safe: {} };
+const context = vm.createContext({ window, document, Roamie: window.Roamie, navigator: { platform: 'Win32' }, innerWidth: 1000, innerHeight: 700, performance: { now: () => 0 },
+  requestAnimationFrame: (fn) => frames.push(fn), setInterval: () => 0, clearInterval() {}, setTimeout: () => 0, clearTimeout() {}, addEventListener() {}, Date, Math });
+for (const file of ['supervisors.js', 'host.js']) vm.runInContext(fs.readFileSync(new URL(`../../../roamies/${file}`, import.meta.url), 'utf8'), context);
+const event = { id: 's_11111111-1111-4111-8111-111111111111', key: 's_11111111-1111-4111-8111-111111111111:question:1' };
+const alert = { kind: 'supervisor_alert', text: 'The experiment needs your decision.', mood: 'concerned', events: [event] };
+const receipts = () => requests.filter((r) => r.msg?.request?.action === 'notified');
+window.Roamie.game = true;
+window.__roamieHost(alert); frames.shift()();
+assert.equal(bubbles.length, 0); assert.equal(receipts().length, 0, 'a blocked overlay cannot acknowledge an unseen alert');
+window.Roamie.game = false;
+window.__roamieHost(alert);
+assert.equal(bubbles.length, 0); frames.shift()();
+assert.equal(bubbles.length, 1);
+assert.equal(receipts().length, 1);
+assert.deepEqual(JSON.parse(JSON.stringify(receipts()[0].msg)), { type: 'supervisor_request', request: { action: 'notified', ...event } });
+window.__roamieHost(alert); frames.shift()();
+assert.equal(bubbles.length, 1, 'the actual bridge deduplicates a transport retry');
+assert.equal(receipts().length, 2, 'lost acknowledgements can be repeated');
+assert.equal(window.Roamie.supervisors.isOpen, false);
+console.log('Supervisor notification host bridge tests: passed');

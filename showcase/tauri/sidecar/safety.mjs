@@ -11,6 +11,58 @@ const isAbs = (p) => p.startsWith('/') || /^[a-z]:\//i.test(p);
 export const SAFE = 'safe', ASK = 'ask', BLOCK = 'block';
 const verdict = (level, reason = '') => ({ level, reason });
 
+// Typed, local observation only. This grants no generic shell or worker mutation privileges.
+export function orcaReadArgs(operation, input = {}) {
+  const id = (value, prefix) => {
+    if (typeof value !== 'string' || !new RegExp(`^${prefix}_[a-z0-9]{1,64}$`).test(value)) throw new Error(`Invalid Orca ${prefix} identity.`);
+    return value;
+  };
+  const cursor = () => {
+    if (input.cursor == null) return [];
+    if (typeof input.cursor !== 'string' || !/^[a-zA-Z0-9_=-]{1,4096}$/.test(input.cursor)) throw new Error('Invalid Orca cursor.');
+    return ['--cursor', input.cursor];
+  };
+  const keys = { activity: [], workspaces: [], runs: ['cursor'], tasks: ['runId'], workers: ['runId', 'cursor'], worker: ['dispatchId'], transcript: ['dispatchId'] };
+  if (!keys[operation] || Object.keys(input).some((k) => !keys[operation].includes(k))) throw new Error('Unsupported Orca observation.');
+  let args;
+  switch (operation) {
+    case 'activity': return ['worktree', 'ps', '--agent-wait', '--limit', '1000', '--environment', 'local', '--json'];
+    case 'workspaces': return ['worktree', 'ps', '--limit', '1000', '--environment', 'local', '--json'];
+    case 'runs': args = ['run-list', '--limit', '25', ...cursor()]; break;
+    case 'tasks': args = ['task-list', '--run', id(input.runId, 'run'), '--full']; break;
+    case 'workers': args = ['worker-list', '--run', id(input.runId, 'run'), '--limit', '100', ...cursor()]; break;
+    case 'worker': args = ['worker-show', '--dispatch', id(input.dispatchId, 'ctx'), '--full']; break;
+    case 'transcript': args = ['worker-read', '--dispatch', id(input.dispatchId, 'ctx'), '--source', 'transcript', '--limit', '20', '--full']; break;
+  }
+  return ['orchestration', ...args, '--environment', 'local', '--json'];
+}
+
+/** Launch only a model supervisor in a previously discovered LOCAL Orca workspace. No shells or permission flags. */
+export function orcaSupervisorArgs({ workspace, agent, prompt, model, operationId } = {}) {
+  if (typeof workspace !== 'string' || workspace.length > 1500 || /[\x00-\x1f\x7f]/.test(workspace)
+    || !(/^identity:wt2:local:[a-z0-9-]{1,80}$/.test(workspace) || /^id:[a-z0-9-]{1,80}::(?:[a-z]:[\\/]|\/).+$/i.test(workspace))) throw new Error('Use the exact local workspace identity from orca_workspaces.');
+  if (typeof agent !== 'string' || !/^[a-z][a-z0-9-]{0,39}$/.test(agent)) throw new Error('Invalid Orca agent.');
+  if (typeof prompt !== 'string' || !prompt.trim() || prompt.length > 24000 || prompt.includes('\0')) throw new Error('Invalid supervisor instructions.');
+  if (model != null && (typeof model !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9._:/@-]{0,199}$/.test(model))) throw new Error('Invalid Orca model.');
+  if (operationId != null && (typeof operationId !== 'string' || !/^[a-zA-Z0-9_:-]{1,200}$/.test(operationId))) throw new Error('Invalid launch recovery identity.');
+  return ['agent', 'launch', '--agent', agent, '--worktree', workspace, '--prompt', prompt,
+    ...(model ? ['--model', model] : []), ...(operationId ? ['--retry-launch', operationId] : []), '--environment', 'local', '--json'];
+}
+
+export function orcaSupervisorMessageArgs({ handle, text } = {}) {
+  if (typeof handle !== 'string' || !/^[a-zA-Z][a-zA-Z0-9_:-]{1,299}$/.test(handle)) throw new Error('Invalid supervisor agent handle.');
+  if (typeof text !== 'string' || !text.trim() || text.length > 12000 || /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(text)) throw new Error('Invalid supervisor message.');
+  return ['terminal', 'send', '--terminal', handle, '--text', text, '--enter', '--wait-submit', '1', '--environment', 'local', '--json'];
+}
+
+// Internal owned state, deliberately separate from write_file and its protected ~/.gg rules.
+export function checkSupervisorStorage(file, root) {
+  const r = slash(nodePath.resolve(root)), f = slash(nodePath.resolve(file));
+  if (!(['state.json', 'owner.lock'].includes(path.basename(f)) || /^s_[a-f0-9-]{36}\.report\.json$/.test(path.basename(f))) || path.dirname(f) !== r || !samePath(realOf(r), r)
+    || bothOf(f).some((p) => !samePath(path.dirname(p), r))) return verdict(BLOCK, 'Supervisor storage escaped its owned folder.');
+  return verdict(SAFE);
+}
+
 // Secrets: keys, tokens, passwords, browser cookies and the keychain. Never read, never sent anywhere.
 const SECRET = [
   /(^|\/)\.ssh(\/|$)/, /(^|\/)\.gnupg(\/|$)/, /(^|\/)\.aws(\/|$)/, /(^|\/)\.azure(\/|$)/, /(^|\/)\.kube\/config$/,
@@ -88,6 +140,8 @@ export function riskyKind(label) {
 /** Tool arguments as they go in the activity log: anything typed into fields or files becomes its length. */
 export function redactArgs(name, args = {}) {
   const len = (t) => `[${String(t ?? '').length} chars]`;
+  if (name === 'create_supervisor') return { ...args, objective: len(args.objective), instructions: len(args.instructions) };
+  if (name === 'message_supervisor') return { id: args.id, text: len(args.text) };
   // Steps that aren't a list (a model sent them as one string) are logged as their size only: they can hold typed
   // text too, and reading them as a list crashed the request before the tool could say what was wrong.
   if (name === 'act_in_app') return { ...args, steps: Array.isArray(args.steps) ? args.steps.map((s) => (['type', 'set', 'fill'].includes(s?.do) ? { ...s, text: len(s.text) } : s)) : args.steps == null ? [] : `[${typeof args.steps}, ${len(typeof args.steps === 'string' ? args.steps : JSON.stringify(args.steps)).slice(1)}` };

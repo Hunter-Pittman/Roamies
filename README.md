@@ -143,6 +143,43 @@ Windows and Linux uses [NVIDIA Parakeet TDT 0.6B v3](https://huggingface.co/nvid
 
 <sub>The first time you sign in with Claude, Roamies downloads Claude Code (about 140 MB). On Windows and Linux, the voice model (about 670 MB) downloads once at setup.</sub>
 
+## Supervisors (development)
+
+Tell Roamie what you need handled, for example “Run the remaining experiments in my project and prepare a brief.”
+Roamie's model discovers the local Orca workspace and generates the supervisor's objective and instructions.
+Each launch includes the bundled [supervisor skill](showcase/tauri/sidecar/skills/roamie-supervisor/SKILL.md).
+**Basic** monitors existing work and nudges unfinished agents to continue. **Advanced** evaluates outputs,
+dispatches the next steps and drives the objective to completion. Name a mode in conversation, or let Roamie
+infer it from your request (basic when unclear). Existing supervisors keep their original scope.
+There are no preset assignments,
+task pickers or setup forms. Orca and its CLI must already be installed and running.
+
+Each supervisor is a separate saved assignment. The read-only Supervisors overlay card shows progress,
+mode, questions and short results. Briefs are normally two or three sentences; detailed evidence stays in the
+project. Older long reports are collapsed under “More detail.” Close the card with its × button or Escape;
+closing the card leaves supervisors running.
+Work announcements follow interruption rules: failures and requests for your input arrive at the next safe
+break; routine progress stays quiet. Completions wait for 15 seconds of quiet and for a Roamies focus block to
+finish. Several completions can share one short notice. Roamie's active replies, listening, typing field and
+permission prompts are never interrupted. Say “only interrupt if you need me,” “quiet for an hour,” or “tell me completions right away”
+to change the rules through conversation. Preferences and pending supervisor alerts survive restart; a snooze
+does not stop work or snooze reminders. Supervisor announcements are acknowledged by the overlay separately
+from opening or reading the brief, with delayed retries if the overlay cannot show them.
+Ask Roamie to pass an answer or instruction to its saved supervisor agent. Delivery is not proof an instruction
+has been carried out; the supervisor's next report confirms what happened. Unsupported or uncertain delivery is
+reported without automatic resends. Orca's own permission prompts still apply.
+
+Launching or messaging a supervisor requires **Allow File Edits & Commands**; routine calls use typed tools,
+without repeated generic shell confirmations. Roamies saves launch intent and receipts, avoids automatic duplicate
+launches after connection loss, and collects reports after restart. Supervisor agents can continue in Orca while
+Roamies is closed. To only watch an existing local orchestration Task, ask Roamie; read-only watches and their
+saved results also work with File Edits & Commands off and observe while Roamies is open.
+
+SSH and message-account integrations are not connected yet. Existing-Task watches require one explicit dispatch;
+arbitrary chat activity is not a completion signal. Model supervisors report through their own bounded output
+files, not inferred chat inactivity. Briefs identify reported vs verified evidence; Roamies does not execute report
+instructions or open arbitrary artifact paths mentioned by an agent.
+
 ## Local models
 
 Roamies can run on a model on your own computer or server instead of a cloud provider: Ollama, LM Studio, or any

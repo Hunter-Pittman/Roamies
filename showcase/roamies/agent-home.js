@@ -476,13 +476,13 @@
           if (e.type === 'launch') { launch(row, hatch ? [hatch.x, hatch.y] : from); say(`${a.title} started.`); }
           else openRow(row);
         }
-        if (e.type === 'ask') { S('remind'); say(`${a.title} is waiting for your yes: ${a.ask?.question ?? ''}`); }
+        if (e.type === 'ask') { if (!e.quiet) S('remind'); say(`${a.title} is waiting for your yes: ${a.ask?.question ?? ''}`); }
         if (a.state === 'failed' && fresh) row.pose = 'fail';
         wake();
         return;
       }
       if (e.type === 'done') {
-        S('done');
+        if (!e.quiet) S('done');
         say(`${a.title} is done. ${a.result?.outcome ?? ''}`);
         if (row) { if (armed === row) disarm(); row.agent = a; row.x.style.visibility = 'hidden'; row.ask.classList.remove('open'); row.status.textContent = 'Done'; removeRow(row, 'done');
           // The last one out: its shelf takes the home's place as the home goes, so older shelves move just once.
@@ -492,7 +492,7 @@
         return;
       }
       if (e.type === 'fail') {
-        S('error');
+        if (!e.quiet) S('error');
         say(`${a.title} couldn't finish: ${a.reason ?? ''}`);
         if (!row) { row = makeRow(a); openRow(row); }
         row.agent = a; row.pose = 'fail'; row.poseAt = now();

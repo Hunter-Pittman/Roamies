@@ -15,7 +15,7 @@ const KEEP_SESSIONS = 60;
 
 const chains = new Map();
 /** Atomic JSON write. `backup` keeps the previous version as <file>.bak. */
-export function writeJson(file, data, { backup = false } = {}) {
+export function writeJson(file, data, { backup = false, strict = false } = {}) {
   const run = async () => {
     await fs.mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
     const tmp = `${file}.${process.pid}.${randomBytes(3).toString('hex')}.tmp`;
@@ -31,7 +31,7 @@ export function writeJson(file, data, { backup = false } = {}) {
   };
   const next = (chains.get(file) ?? Promise.resolve()).then(run, run);
   chains.set(file, next.catch(() => {}));
-  return next.catch((e) => console.error(`[store] write ${path.basename(file)} failed`, e));
+  return strict ? next : next.catch((e) => console.error(`[store] write ${path.basename(file)} failed`, e));
 }
 
 /** Resolves once every write queued so far has landed (or failed), so quitting never cuts one off. */

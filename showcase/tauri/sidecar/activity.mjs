@@ -10,6 +10,12 @@ const appOf = (t) => { t = String(t ?? '').trim(); return !t || t === 'screen' |
 // [while it runs, once it's done] for a tool call; null for the ones that aren't worth a line.
 export function describe(name, args = {}) {
   switch (name) {
+    case 'orca_status': case 'orca_workspaces': case 'orca_tasks': return ['Checking Orca', 'Checked Orca'];
+    case 'create_supervisor': return ['Creating a supervisor', 'Requested a supervisor'];
+    case 'watch_orca_task': return ['Starting a task watch', 'Started a task watch'];
+    case 'message_supervisor': return ['Sending supervisor instructions', 'Requested a supervisor update'];
+    case 'supervisors': return ['Checking supervisors', 'Checked supervisors'];
+    case 'control_supervisor': return ['Updating a task watch', 'Updated a task watch'];
     case 'take_screenshot': { const a = appOf(args.target); return a ? [`Looking at ${a}`, `Looked at ${a}`] : ['Looking at your screen', 'Looked at your screen']; }
     case 'list_windows': return ['Checking your windows', 'Checked your windows'];
     case 'read_window': { const a = appOf(args.target); return a ? [`Reading ${a}`, `Read ${a}`] : ['Reading a window', 'Read a window']; }

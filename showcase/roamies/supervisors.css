@@ -1,0 +1,40 @@
+/* A draggable Roamie card, using the research card's pixel frame and glass. */
+.rp.sv { width: 600px; height: 420px; z-index: 6; }
+.sv[hidden], .sv [hidden] { display: none !important; }
+.sv .rp-in { overflow: hidden; }
+.sv .sv-head { flex-shrink: 0; }
+.sv button { all: unset; box-sizing: border-box; cursor: pointer; padding: 6px 9px; color: var(--ink); background: #0b2224; border: 1px solid var(--line-hi); font-size: 10px; line-height: 1.4; }
+.sv button:hover { background: #12393a; border-color: var(--accent); }
+.sv button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.sv .rp-x { border: 0; width: 26px; height: 26px; display: grid; place-items: center; font-size: 18px; padding: 0; background: transparent; }
+.sv h2 { margin: 0; font-size: 12px; font-weight: 600; }
+.sv .muted { color: var(--ink-3); font-size: 10px; line-height: 1.6; }
+.sv .sv-section-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.sv .sv-main { display: grid; grid-template-columns: 190px minmax(0, 1fr); flex: 1; min-height: 0; }
+.sv aside { border-right: 1px solid #12302e; padding: 12px 8px; overflow: auto; }
+.sv aside .sv-section-head { padding: 0 4px 10px; }
+.sv [data-sv="list"] { display: grid; gap: 6px; }
+.sv button.assignment { width: 100%; text-align: left; padding: 10px 8px; display: grid; gap: 6px; background: transparent; }
+.sv .assignment.selected { background: #0d2a2a; border-color: var(--accent); }
+.sv .assignment strong { font-size: 11px; font-weight: 500; overflow-wrap: anywhere; }
+.sv .badge { font-size: 9px; text-transform: uppercase; letter-spacing: .5px; color: var(--accent); }
+.sv .badge.attention { color: #e9a196; }
+.sv .badge.stopped, .sv .badge.paused { color: var(--ink-3); }
+.sv [data-sv="detail"] { padding: 16px; overflow: auto; min-width: 0; }
+.sv .detail-title { font-size: 16px; line-height: 1.4; margin: 8px 0; overflow-wrap: anywhere; }
+.sv .objective { font-size: 11px; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--ink-2); }
+.sv .notice { border-left: 2px solid var(--accent); padding: 8px 10px; background: #0b2224; font-size: 10px; line-height: 1.6; overflow-wrap: anywhere; }
+.sv .identity { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 6px; font-size: 9px; line-height: 1.6; }
+.sv .identity dt, .sv .identity dd { margin: 0; overflow-wrap: anywhere; }
+.sv .identity dt { color: var(--ink-3); }
+.sv h3 { margin: 18px 0 8px; color: var(--ink-3); font-size: 10px; font-weight: 500; text-transform: uppercase; }
+.sv pre { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.75; font: inherit; font-size: 10px; }
+.sv .brief { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; line-height: 1.7; color: var(--ink); }
+.sv .updated { margin-top: 16px; }
+.sv .more { margin-top: 12px; border-top: 1px solid var(--line-hi); padding-top: 10px; }
+.sv .more summary { color: var(--ink-3); font-size: 10px; cursor: pointer; }
+.sv .empty { padding: 40px 8px; text-align: center; color: var(--ink-3); font-size: 11px; }
+.sv .empty h2 { color: var(--ink); font-size: 14px; }
+.sv .sv-footer { border-top: 1px solid #12302e; padding: 8px 12px; color: var(--ink-3); font-size: 9px; flex-shrink: 0; }
+.sv [data-sv="error"] { margin: 8px 12px; color: #e9a196; font-size: 10px; white-space: pre-wrap; overflow-wrap: anywhere; }
+@media (max-width: 560px) { .sv .sv-main { grid-template-columns: 145px minmax(0, 1fr); } .sv [data-sv="detail"] { padding: 10px; } }

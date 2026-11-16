@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { z } from 'zod';
+import { agentInterruptionCategory, canInterrupt, interruptionMode } from './interruptions.mjs';
 
 // One visible folder for everything agents make (no macOS privacy prompt); ROAMIES_DATA_DIR moves it for tests.
 export const agentsRoot = () => (process.env.ROAMIES_DATA_DIR ? path.join(process.env.ROAMIES_DATA_DIR, 'Roamies') : path.join(os.homedir(), 'Roamies'));
@@ -99,15 +100,16 @@ const fallbackLine = (items) => items.map((i) => (i.kind === 'ask' ? `${i.title}
 /** Passing the news on. tick (every second): one system turn for every fresh item once canNudge passes, or with no
  *  model, a plain line. along: what rides on their own message (old news too). started: a news turn began, so its
  *  items count as told however it goes. stir: something changed, so the quiet clock restarts. */
-export function newsDesk({ gates, news, markTold, enqueue, say, signedIn, userName = 'the user', now = Date.now }) {
+export function newsDesk({ gates, news, markTold, enqueue, say, signedIn, userName = 'the user', now = Date.now, interruptions = null }) {
   let quietSince = now(), last = '';
   const stir = () => { quietSince = now(); };
   function tick() {
     const g = gates();
     const sig = JSON.stringify(g);
     if (sig !== last) { last = sig; stir(); }
-    const items = news().filter((i) => !i.old);
-    if (!items.length || !canNudge({ ...g, quietMs: now() - quietSince })) return null;
+    const items = news().filter((i) => !i.old && (!interruptions || canInterrupt(agentInterruptionCategory(i), interruptions(), g, now() - quietSince, now())));
+    if (interruptions) items.sort((a, b) => ({ failures: 0, questions: 1, completions: 2 }[agentInterruptionCategory(a)] - { failures: 0, questions: 1, completions: 2 }[agentInterruptionCategory(b)]));
+    if (!items.length || !interruptions && !canNudge({ ...g, quietMs: now() - quietSince })) return null;
     const ids = items.map((i) => i.id);
     if (signedIn()) { enqueue(newsText(items, userName), ids); return 'turn'; }
     markTold(ids);
@@ -116,7 +118,7 @@ export function newsDesk({ gates, news, markTold, enqueue, say, signedIn, userNa
   }
   function along(text, { intro = false, news: isNews = false, agentish = false } = {}) {
     if (intro || isNews || agentish || text.startsWith('(')) return '';
-    const items = news();
+    const items = news().filter((i) => !interruptions || interruptionMode(agentInterruptionCategory(i), interruptions(), now()) !== 'off' && (!gates().focus || interruptionMode(agentInterruptionCategory(i), interruptions(), now()) === 'immediate'));
     if (!items.length) return '';
     markTold(items.map((i) => i.id));
     return `\n${newsText(items, userName, { along: true })}`;
